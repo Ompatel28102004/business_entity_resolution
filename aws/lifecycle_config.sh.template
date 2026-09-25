@@ -1,0 +1,30 @@
+#!/bin/bash
+# SageMaker Notebook Instance lifecycle script (runs as root, on every start).
+#
+# Placeholders ({{BUCKET}}, {{DATA_PREFIX}}, {{CODE_PREFIX}}) are substituted
+# by aws/setup_sagemaker.py before this is uploaded as the instance's
+# "OnStart" lifecycle configuration -- do not edit the rendered copy on AWS,
+# edit this template and re-run the setup script instead.
+set -e
+
+PROJECT_DIR=/home/ec2-user/SageMaker/amazon_ml_challenge
+mkdir -p "$PROJECT_DIR"
+cd "$PROJECT_DIR"
+
+echo "Syncing code from s3://{{BUCKET}}/{{CODE_PREFIX}}/ ..."
+sudo -u ec2-user aws s3 sync "s3://{{BUCKET}}/{{CODE_PREFIX}}/" "$PROJECT_DIR/business_entity_resolution/" --quiet
+
+echo "Syncing dataset from s3://{{BUCKET}}/{{DATA_PREFIX}}/ ..."
+sudo -u ec2-user mkdir -p "$PROJECT_DIR/student_resource/dataset"
+sudo -u ec2-user aws s3 sync "s3://{{BUCKET}}/{{DATA_PREFIX}}/" "$PROJECT_DIR/student_resource/dataset/" --quiet
+
+echo "Installing pinned Python dependencies into the notebook's python3 environment ..."
+source /home/ec2-user/anaconda3/etc/profile.d/conda.sh
+conda activate python3
+pip install -q -r "$PROJECT_DIR/business_entity_resolution/requirements.txt"
+conda deactivate
+
+# Make the project importable from any notebook kernel without manual sys.path hacks.
+echo "$PROJECT_DIR/business_entity_resolution" > /home/ec2-user/anaconda3/envs/python3/lib/python3*/site-packages/amazon_ml_challenge.pth || true
+
+echo "Lifecycle setup complete."

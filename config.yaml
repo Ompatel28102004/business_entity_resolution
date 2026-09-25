@@ -1,0 +1,158 @@
+# ============================================================================
+# Business Entity Resolution — single source of truth configuration.
+#
+# Every tunable knob in the pipeline lives here. `run.py` loads this file and
+# lets specific values be overridden from the command line (CLI overrides
+# always win over this file — see `run.py --help`).
+#
+# Paths are resolved relative to `src/config.py` (repo-relative) unless you
+# set an explicit absolute path below (useful on EC2 if your data/model
+# artifacts live on a separate, larger EBS volume).
+# ============================================================================
+
+paths:
+  # Leave null to use the built-in defaults from src/config.py:
+  #   raw_data_dir   -> <repo>/student_resource/dataset
+  #   data_dir       -> <project>/data       (parquet caches)
+  #   models_dir     -> <project>/models     (trained model + vectorizers + threshold)
+  #   experiments_dir -> <project>/experiments (results.csv, logs, sample metadata)
+  #   artifacts_dir  -> <project>/artifacts  (resume state / stage manifests)
+  #   output_dir     -> <repo>/output        (matching_results.tsv, candidate_pairs.tsv
+  #                                            -- matches the OFFICIAL submission layout)
+  raw_data_dir: null
+  data_dir: null
+  models_dir: null
+  experiments_dir: null
+  artifacts_dir: null
+  output_dir: null
+
+# ----------------------------------------------------------------------------
+# Sampling: controls how much TRAIN data a run actually touches.
+# sample_size = 0 means "use ALL available Source-1 training entities".
+# Sampling is always entity-aware (whole Source-1 entities are selected, with
+# every one of their true Source-2/Source-3 matches preserved) -- individual
+# pair rows are never sampled independently, since labels and the F0.5 metric
+# are defined per Source-1 entity.
+# ----------------------------------------------------------------------------
+sampling:
+  train_sample_size: 0        # 0 = full ~2.2M train Source-1 entities
+  source1_sample_size: null   # alias for train_sample_size; CLI --source1-sample-size wins if both given
+  source2_sample_size: null   # cap on the Source-2 BACKGROUND pool size when sampling (null = auto, see background_multiplier)
+  source3_sample_size: null   # cap on the Source-3 BACKGROUND pool size when sampling (null = auto)
+  test_sample_size: 0         # 0 = full test Source-1 entities (infer stage); >0 only for fast dev smoke-runs
+  background_multiplier: 20   # background pool size per sampled S1 entity, per source (see methodology.md)
+  use_background_pool: true   # if true, sampled TRAIN runs normalize only a small S2/S3 pool, not the full tables
+  random_seed: 42
+  val_fraction: 0.25          # fraction of the (possibly sampled) train S1 ids held out for validation
+
+# ----------------------------------------------------------------------------
+# Runtime / memory controls
+# ----------------------------------------------------------------------------
+runtime:
+  chunk_size: 25000            # Source-1 rows processed per streaming batch (train pool + inference)
+  feature_batch_size: 20000    # candidate pairs processed per feature-computation batch
+  max_candidates_per_entity: 400  # safety cap; matches blocking.max_block_size below
+  n_jobs: -1                   # -1 = use all detected CPU cores (see utils.get_system_info)
+  tfidf_chunk_size: 2000        # S1 rows per batch during sparse TF-IDF top-K retrieval
+
+# ----------------------------------------------------------------------------
+# Normalization -- see src/normalization.py. No knobs needed today; kept as
+# an explicit section so future normalization options have a home in config.
+# ----------------------------------------------------------------------------
+normalization: {}
+
+# ----------------------------------------------------------------------------
+# Blocking rules (src/blocking.py). Every rule is a UNION member; disabling
+# one only removes that rule's contribution to candidate recall, it never
+# gates the others. Measure before disabling anything (see notebooks/02 and
+# experiments/results.csv "candidate_recall" column).
+# ----------------------------------------------------------------------------
+blocking:
+  exact_name: true
+  exact_address: true
+  name_token: true            # name_first_token_country + name_first_two_tokens
+  rare_token: true
+  address_number: true
+  name_compact_prefix: true
+  tfidf_name: true
+  tfidf_address: true
+  max_block_size: 400          # skip/cap hash-blocks bigger than this (avoids O(block^2) blow-ups)
+  rare_token_doc_freq_threshold: 50
+
+# ----------------------------------------------------------------------------
+# TF-IDF character n-gram retrieval (src/retrieval.py)
+# ----------------------------------------------------------------------------
+tfidf:
+  name_ngram_range: [3, 5]
+  address_ngram_range: [3, 5]
+  top_k: 20                    # neighbours retrieved per Source-1 entity, per field, per source
+  max_features: 200000         # vocabulary cap -- keeps the sparse matrix memory-bounded
+  fit_sample_size: 300000      # bounded random sample used to FIT the vectorizer (never the transform)
+  analyzer: char_wb
+
+# ----------------------------------------------------------------------------
+# Feature engineering (src/features.py) -- flags reserved for future ablation
+# without code changes; the full ~60-column feature set is always computed
+# today (see methodology.md Section 5).
+# ----------------------------------------------------------------------------
+features:
+  rare_idf_threshold: 6.0
+
+# ----------------------------------------------------------------------------
+# Negative sampling strategy (src/labeling.py)
+# ----------------------------------------------------------------------------
+negative_sampling:
+  strategy: blocking_hard_negatives   # every non-matching candidate that survived blocking is a hard negative
+  # No random-pair negative sampling is used -- see methodology.md Section 8.
+
+# ----------------------------------------------------------------------------
+# Model selection (src/model.py, src/train.py)
+# ----------------------------------------------------------------------------
+model:
+  candidates: [rule_based, logistic_regression, random_forest, hist_gradient_boosting]
+  # The final model is whichever of the above scores highest validation
+  # entity-level F0.5 in experiments/results.csv -- chosen empirically by
+  # src/train.py, never hard-coded here.
+  parameters:
+    hist_gradient_boosting:
+      max_depth: 8
+      max_iter: 300
+      learning_rate: 0.08
+      l2_regularization: 1.0
+    random_forest:
+      n_estimators: 300
+      max_depth: 16
+      min_samples_leaf: 5
+
+# ----------------------------------------------------------------------------
+# Decision threshold (src/thresholding.py)
+# ----------------------------------------------------------------------------
+threshold:
+  value: null                  # null = search for the F0.5-optimal threshold on validation (never a fixed 0.5 cut)
+  coarse_range: [0.30, 0.95, 0.05]
+  fine_step: 0.01
+  apply_consistency_rule: false   # one-parent-per-match rule; only enabled if it measurably improves val F0.5
+  min_score_gap: null             # optional top1-vs-runner-up ambiguity guard
+
+# ----------------------------------------------------------------------------
+# Inference (src/inference.py)
+# ----------------------------------------------------------------------------
+inference:
+  chunk_size: 25000
+  n_jobs_normalize: -1
+
+# ----------------------------------------------------------------------------
+# Logging
+# ----------------------------------------------------------------------------
+logging:
+  level: INFO
+  dir: experiments/logs
+  log_to_file: true
+
+# ----------------------------------------------------------------------------
+# Output
+# ----------------------------------------------------------------------------
+output:
+  matching_filename: matching_results.tsv
+  candidate_filename: candidate_pairs.tsv
+  run_official_validator: true

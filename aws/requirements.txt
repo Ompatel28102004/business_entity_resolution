@@ -1,0 +1,5 @@
+# Dependencies for running aws/setup_sagemaker.py itself (NOT part of the
+# ML pipeline's requirements.txt -- this only runs wherever you provision
+# AWS resources from, e.g. your laptop with the AWS CLI configured).
+boto3>=1.34,<2.0
+PyYAML>=6.0,<7.0

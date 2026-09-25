@@ -1,0 +1,55 @@
+# ============================================================================
+# Single source of truth for the AWS / SageMaker setup.
+#
+# Edit the values below, then run:
+#     python aws/setup_sagemaker.py --config aws/aws_config.yaml
+#
+# Everything the provisioning script does (S3 bucket + upload, IAM role,
+# lifecycle configuration, Notebook Instance) reads its parameters from this
+# file, so this is the only file you should need to touch to stand the
+# environment up or tear it down.
+# ============================================================================
+
+aws:
+  region: us-east-1          # AWS region to deploy into
+  profile: null               # AWS CLI profile name to use, or null for the default credential chain
+
+s3:
+  # Must be a globally-unique bucket name. If it already exists AND you own
+  # it, the script reuses it; otherwise it creates it.
+  bucket_name: amazon-ml-challenge-2026-REPLACE-WITH-UNIQUE-SUFFIX
+  data_prefix: entity-resolution/data          # raw train/test TSVs land here
+  code_prefix: entity-resolution/code          # business_entity_resolution/ source lands here
+  artifacts_prefix: entity-resolution/artifacts # trained models / outputs can be synced back here
+
+iam:
+  # If role_arn is set, the script reuses that existing role and skips role
+  # creation entirely (recommended if your account restricts IAM creation).
+  role_arn: null
+  role_name: AmazonMLChallengeSageMakerRole
+  # Managed + inline policies attached only when the script creates the role.
+  managed_policy_arns:
+    - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+
+sagemaker:
+  notebook_instance_name: amazon-ml-challenge-notebook
+  # CPU-only, no GPU needed anywhere in this pipeline.
+  # ml.m5.4xlarge = 16 vCPU / 64GB RAM -- comfortably fits normalizing +
+  # vectorizing the full ~5M-row Source-2/3 tables in memory at once.
+  # Drop to ml.m5.2xlarge (8 vCPU / 32GB) for a cheaper dev/smoke-test box,
+  # or raise to ml.m5.8xlarge / ml.r5.4xlarge if full-scale feature
+  # engineering needs more headroom than measured (see methodology.md).
+  instance_type: ml.m5.4xlarge
+  volume_size_gb: 100          # raw TSVs (~1.3GB) + parquet caches (~2GB) + feature/model artifacts, with headroom
+  lifecycle_config_name: amazon-ml-challenge-lifecycle
+  root_access: Enabled
+
+local_paths:
+  # Relative to the AmazonML/ repo root (parent of business_entity_resolution/).
+  dataset_dir: student_resource/dataset
+  code_dir: business_entity_resolution
+
+upload:
+  # Directories/files under code_dir excluded from the S3 code sync (dev
+  # scratch space, local caches, and anything regenerable on the instance).
+  exclude_dirs: [cache, data, models, "__pycache__", ".ipynb_checkpoints"]
