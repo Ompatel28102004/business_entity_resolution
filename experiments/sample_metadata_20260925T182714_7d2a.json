@@ -1,0 +1,24 @@
+{
+  "run_id": "20260925T182714_7d2a",
+  "train_sample_size_requested": 10000,
+  "is_full_data": false,
+  "n_source1_entities_selected": 10000,
+  "n_train_entities": 7500,
+  "n_val_entities": 2500,
+  "n_positive_pairs_train": 25729,
+  "n_negative_pairs_train": 2995998,
+  "n_positive_pairs_val": 8685,
+  "n_negative_pairs_val": 987563,
+  "pool_metadata": {
+    "mode": "background_pool",
+    "n_source1_entities": 10000,
+    "n_source2_true_matches": 16604,
+    "n_source2_background": 200000,
+    "n_source2_pool": 216604,
+    "n_source2_full_table": 5034616,
+    "n_source3_true_matches": 18035,
+    "n_source3_background": 200000,
+    "n_source3_pool": 218035,
+    "n_source3_full_table": 5285603
+  }
+}

@@ -16,11 +16,18 @@ from pathlib import Path
 # This file lives at business_entity_resolution/src/config.py
 SRC_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SRC_DIR.parent                       # business_entity_resolution/
-REPO_DIR = PROJECT_DIR.parent                      # AmazonML/
+# REPO_DIR = PROJECT_DIR.parent                      # AmazonML/
 
 # Raw challenge data, as provided by the organisers. We read directly from
 # here instead of copying ~1.3GB/1.2GB of TSVs into the project tree.
-RAW_DATA_DIR = REPO_DIR / "student_resource" / "dataset"
+# RAW_DATA_DIR = REPO_DIR / "student_resource" / "dataset"
+
+from pathlib import Path
+
+REPO_DIR = Path(__file__).resolve().parents[1]
+
+RAW_DATA_DIR = REPO_DIR / "data"
+
 RAW_TRAIN_DIR = RAW_DATA_DIR / "train"
 RAW_TEST_DIR = RAW_DATA_DIR / "test"
 
@@ -89,6 +96,9 @@ VALIDATION_FRACTION = 0.25
 TFIDF_NAME_NGRAM_RANGE = (3, 5)
 TFIDF_ADDRESS_NGRAM_RANGE = (3, 5)
 TFIDF_TOP_K = 20          # neighbours retrieved per S1 entity per source, per field
+# Exact TF-IDF candidate retrieval rescans the target corpus per S1 batch.
+# Keep it opt-in for test inference until a reusable exact index is available.
+ENABLE_TFIDF_RETRIEVAL = False
 MAX_BLOCK_SIZE = 400      # skip (or subsample) hash-blocks bigger than this - avoids
                           # combinatorial blow-up from extremely common keys (e.g. empty
                           # names) while barely affecting recall (see audit notebook).

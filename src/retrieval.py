@@ -19,6 +19,7 @@ Python-level iterations).
 """
 from __future__ import annotations
 
+import time
 from typing import Iterable, Tuple
 
 import numpy as np
@@ -27,7 +28,7 @@ import scipy.sparse as sp
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from . import config
-from .utils import log, timer
+from .utils import log, log_mem, timer
 
 
 def fit_vectorizer(
@@ -114,6 +115,86 @@ def top_k_candidates(
     )
 
 
+def top_k_candidates_chunked(
+    s1_matrix: sp.csr_matrix,
+    other_texts: pd.Series,
+    vectorizer: TfidfVectorizer,
+    s1_ids: np.ndarray,
+    other_ids: np.ndarray,
+    k: int = config.TFIDF_TOP_K,
+    other_chunk_size: int = 10_000,
+    s1_chunk_size: int = 256,
+    min_score: float = 0.0,
+    label: str = "TF-IDF",
+) -> pd.DataFrame:
+    """Retrieve exact global top-K while transforming one other-side chunk at a time.
+
+    Each chunk contributes at most K candidates per S1 row; merging those
+    partial top-K sets preserves the global top-K, including later chunks.
+    Similarity products remain sparse and bounded by both tile dimensions.
+    """
+    n_s1 = s1_matrix.shape[0]
+    best_other = np.full((n_s1, k), -1, dtype=np.int64)
+    best_scores = np.full((n_s1, k), -np.inf, dtype=np.float64)
+    started = time.perf_counter()
+    n_other = len(other_texts)
+    n_other_chunks = -(-n_other // other_chunk_size)
+
+    for chunk_number, other_start in enumerate(range(0, n_other, other_chunk_size), start=1):
+        other_end = min(other_start + other_chunk_size, n_other)
+        other_matrix = vectorizer.transform(other_texts.iloc[other_start:other_end])
+        other_t = other_matrix.T.tocsr()
+
+        for s1_start in range(0, n_s1, s1_chunk_size):
+            s1_end = min(s1_start + s1_chunk_size, n_s1)
+            sim_tile = (s1_matrix[s1_start:s1_end] @ other_t).tocsr()
+            for local_i in range(sim_tile.shape[0]):
+                row_start, row_end = sim_tile.indptr[local_i], sim_tile.indptr[local_i + 1]
+                if row_start == row_end:
+                    continue
+                values = sim_tile.data[row_start:row_end]
+                columns = sim_tile.indices[row_start:row_end] + other_start
+                keep = values >= min_score
+                values, columns = values[keep], columns[keep]
+                if not len(values):
+                    continue
+                if len(values) > k:
+                    positions = np.argpartition(values, -k)[-k:]
+                    values, columns = values[positions], columns[positions]
+
+                global_i = s1_start + local_i
+                valid = best_other[global_i] >= 0
+                merged_scores = np.concatenate((best_scores[global_i, valid], values))
+                merged_columns = np.concatenate((best_other[global_i, valid], columns))
+                order = np.lexsort((merged_columns, -merged_scores))[:k]
+                retained = len(order)
+                best_scores[global_i].fill(-np.inf)
+                best_other[global_i].fill(-1)
+                best_scores[global_i, :retained] = merged_scores[order]
+                best_other[global_i, :retained] = merged_columns[order]
+            del sim_tile
+
+        del other_t, other_matrix
+        log_mem(
+            f"{label} chunk {chunk_number}/{n_other_chunks}: rows processed={other_end}/{n_other}, "
+            f"candidates retained={int((best_other >= 0).sum())}, "
+            f"elapsed={time.perf_counter() - started:.1f}s"
+        )
+
+    valid = best_other >= 0
+    if not valid.any():
+        return pd.DataFrame(columns=["entity_id_s1", "entity_id_other", "tfidf_score"])
+    s1_positions = np.broadcast_to(np.arange(n_s1)[:, None], best_other.shape)[valid]
+    other_positions = best_other[valid]
+    return pd.DataFrame(
+        {
+            "entity_id_s1": s1_ids[s1_positions],
+            "entity_id_other": other_ids[other_positions],
+            "tfidf_score": best_scores[valid],
+        }
+    )
+
+
 def fit_field_vectorizer(
     text_series_list: list[pd.Series],
     ngram_range: Tuple[int, int] = (3, 5),
@@ -126,9 +207,20 @@ def fit_field_vectorizer(
     across every Source-1 chunk / Source-2 / Source-3 pass for consistent,
     cheap ``transform`` calls.
     """
-    corpus = pd.concat(text_series_list, axis=0)
-    if fit_sample_size is not None and len(corpus) > fit_sample_size:
-        corpus = corpus.sample(n=fit_sample_size, random_state=config.RANDOM_SEED)
+    total_rows = sum(len(series) for series in text_series_list)
+    if fit_sample_size is not None and total_rows > fit_sample_size:
+        positions = np.random.RandomState(config.RANDOM_SEED).choice(
+            total_rows, size=fit_sample_size, replace=False,
+        )
+        sampled_values = np.empty(fit_sample_size, dtype=object)
+        offset = 0
+        for series in text_series_list:
+            selected = (positions >= offset) & (positions < offset + len(series))
+            sampled_values[selected] = series.iloc[positions[selected] - offset].to_numpy()
+            offset += len(series)
+        corpus = pd.Series(sampled_values)
+    else:
+        corpus = pd.concat(text_series_list, axis=0)
     return fit_vectorizer(corpus, ngram_range=ngram_range)
 
 

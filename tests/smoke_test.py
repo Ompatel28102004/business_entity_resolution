@@ -94,11 +94,34 @@ s3_norm = add_all_normalizations(s3_df)
 name_vec = retrieval.fit_field_vectorizer([s1_norm["name_alnum"], s2_norm["name_alnum"], s3_norm["name_alnum"]], fit_sample_size=None)
 addr_vec = retrieval.fit_field_vectorizer([s1_norm["address_alnum"], s2_norm["address_alnum"], s3_norm["address_alnum"]], fit_sample_size=None)
 
-s2_side = inference.VectorizedOtherSide(s2_norm, name_vec, addr_vec)
-s3_side = inference.VectorizedOtherSide(s3_norm, name_vec, addr_vec)
+chunk_corpus = pd.Series(["alpha query", "alpha distant", "query alpha", "unrelated", "alpha query exact"])
+chunk_vectorizer = retrieval.fit_vectorizer(chunk_corpus, ngram_range=(2, 3))
+chunk_s1_matrix = chunk_vectorizer.transform(pd.Series(["alpha query"]))
+chunk_other_matrix = chunk_vectorizer.transform(chunk_corpus)
+chunk_expected = retrieval.top_k_candidates(
+    chunk_s1_matrix, chunk_other_matrix, np.array(["S1-check"]),
+    np.array([f"S2-check-{i}" for i in range(len(chunk_corpus))]), k=2,
+)
+chunk_actual = retrieval.top_k_candidates_chunked(
+    chunk_s1_matrix, chunk_corpus, chunk_vectorizer, np.array(["S1-check"]),
+    np.array([f"S2-check-{i}" for i in range(len(chunk_corpus))]),
+    k=2, other_chunk_size=2, s1_chunk_size=1,
+)
+assert set(chunk_expected["entity_id_other"]) == set(chunk_actual["entity_id_other"])
+assert np.allclose(
+    chunk_expected.sort_values("entity_id_other")["tfidf_score"].to_numpy(),
+    chunk_actual.sort_values("entity_id_other")["tfidf_score"].to_numpy(),
+)
 
-cand_s2 = inference.candidates_for_chunk_and_source(s1_norm, s2_side, name_vec, addr_vec, max_block_size=400, tfidf_k=10)
-cand_s3 = inference.candidates_for_chunk_and_source(s1_norm, s3_side, name_vec, addr_vec, max_block_size=400, tfidf_k=10)
+s2_side = inference.VectorizedOtherSide(s2_norm, source_name="Source-2")
+s3_side = inference.VectorizedOtherSide(s3_norm, source_name="Source-3")
+
+cand_s2 = inference.candidates_for_chunk_and_source(
+    s1_norm, s2_side, name_vec, addr_vec, max_block_size=400, tfidf_k=10, tfidf_other_chunk_size=11,
+)
+cand_s3 = inference.candidates_for_chunk_and_source(
+    s1_norm, s3_side, name_vec, addr_vec, max_block_size=400, tfidf_k=10, tfidf_other_chunk_size=11,
+)
 print(f"candidates: s2={len(cand_s2)} s3={len(cand_s3)}")
 
 # recall check
@@ -119,6 +142,16 @@ rule_cols = [c for c in cand_s2.columns if c.startswith("found_by_")] + ["n_bloc
 merged_s2 = features.merge_pair_fields(cand_s2[["entity_id_s1", "entity_id_other"]], s1_norm, s2_norm)
 merged_s2 = merged_s2.assign(tfidf_score_name=cand_s2["tfidf_score_name"].to_numpy(), tfidf_score_address=cand_s2["tfidf_score_address"].to_numpy())
 feat_s2 = features.compute_pair_features(merged_s2, name_idf, addr_idf, rule_flags=cand_s2[rule_cols])
+array_merged_s2 = merged_s2.copy()
+for column in (
+    "name_tokens_s1", "name_tokens_other", "name_numbers_s1", "name_numbers_other",
+    "address_tokens_s1", "address_tokens_other", "address_numbers_s1", "address_numbers_other",
+):
+    array_merged_s2[column] = array_merged_s2[column].map(np.asarray)
+array_features_s2 = features.compute_pair_features(
+    array_merged_s2, name_idf, addr_idf, rule_flags=cand_s2[rule_cols],
+)
+pd.testing.assert_frame_equal(feat_s2, array_features_s2)
 
 merged_s3 = features.merge_pair_fields(cand_s3[["entity_id_s1", "entity_id_other"]], s1_norm, s3_norm)
 merged_s3 = merged_s3.assign(tfidf_score_name=cand_s3["tfidf_score_name"].to_numpy(), tfidf_score_address=cand_s3["tfidf_score_address"].to_numpy())

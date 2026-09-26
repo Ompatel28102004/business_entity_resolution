@@ -16,8 +16,8 @@ from pathlib import Path
 
 from . import config
 
-OFFICIAL_VALIDATOR = config.REPO_DIR / "student_resource" / "utils" / "validate_submission.py"
-
+# OFFICIAL_VALIDATOR = config.REPO_DIR / "student_resource" / "utils" / "validate_submission.py"
+OFFICIAL_VALIDATOR = config.REPO_DIR / "utils" / "validate_submission.py"
 
 def run_official_validator(
     matching_path: Path = config.OUTPUT_DIR / "matching_results.tsv",

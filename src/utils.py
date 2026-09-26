@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import resource
 import time
 import uuid
 import sys
@@ -56,9 +57,33 @@ def mem_mb() -> float:
         return 0.0
 
 
+def peak_mem_mb() -> float:
+    """Return the process high-water RSS in decimal MB on Linux (0.0 if unavailable)."""
+    try:
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024 / 1e6
+    except Exception:
+        return 0.0
+
+
 def log_mem(label: str = "") -> None:
-    """Log current process memory usage, tagged with an optional label."""
-    log(f"MEM {label}: {mem_mb():.0f} MB")
+    """Log process RSS and system-available memory, tagged with an optional label."""
+    system_used_mb = available_mb = None
+    try:
+        import psutil
+
+        memory = psutil.virtual_memory()
+        system_used_mb = memory.used / 1e6
+        available_mb = memory.available / 1e6
+    except Exception:
+        pass
+    system_memory = (
+        f", system used={system_used_mb:.0f} MB, available={available_mb:.0f} MB"
+        if available_mb is not None else ""
+    )
+    log(
+        f"MEM {label}: process RSS={mem_mb():.0f} MB, peak RSS={peak_mem_mb():.0f} MB"
+        f"{system_memory}"
+    )
 
 
 def chunked(seq, size: int):

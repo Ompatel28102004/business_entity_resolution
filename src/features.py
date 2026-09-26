@@ -39,6 +39,11 @@ ADDR_NORM_COLS = [
     "address_first_number",
 ]
 ID_COLS = ["entity_id", "country", "country_norm"]
+PAIR_FEATURE_COLS = [
+    "entity_id", "country_norm", "name_norm", "name_alnum", "name_core",
+    "name_compact", "name_tokens", "name_sorted", "name_numbers",
+    "address_alnum", "address_tokens", "address_numbers", "address_postal",
+]
 
 
 def build_idf_table(token_lists: Iterable[List[str]]) -> Dict[str, float]:
@@ -70,8 +75,8 @@ def merge_pair_fields(
     ``pairs`` must have columns entity_id_s1, entity_id_other (duplicates
     across blocking rules should already be dropped by the caller).
     """
-    s1_cols = ID_COLS + NAME_NORM_COLS + ADDR_NORM_COLS
-    other_cols = s1_cols
+    s1_cols = PAIR_FEATURE_COLS
+    other_cols = PAIR_FEATURE_COLS
 
     left = pairs.merge(
         s1_norm[s1_cols].rename(columns={c: f"{c}_s1" for c in s1_cols}),
@@ -96,13 +101,19 @@ def _common_count(a: list, b: list) -> int:
     return len(set(a) & set(b))
 
 
+def _items_or_empty(items):
+    if items is None:
+        return []
+    return items.tolist() if isinstance(items, np.ndarray) else items
+
+
 def _rare_overlap(a: list, b: list, idf: Dict[str, float]) -> float:
     common = set(a) & set(b)
     return float(sum(idf.get(t, DEFAULT_IDF) for t in common if idf.get(t, DEFAULT_IDF) >= RARE_IDF_THRESHOLD))
 
 
 def _avg_idf(tokens: list, idf: Dict[str, float]) -> float:
-    if not tokens:
+    if len(tokens) == 0:
         return 0.0
     return float(np.mean([idf.get(t, DEFAULT_IDF) for t in tokens]))
 
@@ -157,16 +168,16 @@ def compute_pair_features(
 
     name_tokens_s1 = merged["name_tokens_s1"]
     name_tokens_other = merged["name_tokens_other"]
-    feats["name_token_jaccard"] = np.array([_jaccard(a or [], b or []) for a, b in zip(name_tokens_s1, name_tokens_other)])
-    common_name_tok = np.array([_common_count(a or [], b or []) for a, b in zip(name_tokens_s1, name_tokens_other)])
+    feats["name_token_jaccard"] = np.array([_jaccard(_items_or_empty(a), _items_or_empty(b)) for a, b in zip(name_tokens_s1, name_tokens_other)])
+    common_name_tok = np.array([_common_count(_items_or_empty(a), _items_or_empty(b)) for a, b in zip(name_tokens_s1, name_tokens_other)])
     feats["name_common_token_count"] = common_name_tok
-    min_len_tok = np.array([max(1, min(len(a or []), len(b or []))) for a, b in zip(name_tokens_s1, name_tokens_other)])
+    min_len_tok = np.array([max(1, min(len(_items_or_empty(a)), len(_items_or_empty(b)))) for a, b in zip(name_tokens_s1, name_tokens_other)])
     feats["name_common_token_ratio"] = common_name_tok / min_len_tok
     feats["name_rare_token_overlap"] = np.array(
-        [_rare_overlap(a or [], b or [], name_idf) for a, b in zip(name_tokens_s1, name_tokens_other)]
+        [_rare_overlap(_items_or_empty(a), _items_or_empty(b), name_idf) for a, b in zip(name_tokens_s1, name_tokens_other)]
     )
-    feats["name_avg_idf_s1"] = np.array([_avg_idf(a or [], name_idf) for a in name_tokens_s1])
-    feats["name_avg_idf_other"] = np.array([_avg_idf(b or [], name_idf) for b in name_tokens_other])
+    feats["name_avg_idf_s1"] = np.array([_avg_idf(_items_or_empty(a), name_idf) for a in name_tokens_s1])
+    feats["name_avg_idf_other"] = np.array([_avg_idf(_items_or_empty(b), name_idf) for b in name_tokens_other])
 
     len_a = np.array([len(a) for a in name_a])
     len_b = np.array([len(b) for b in name_b])
@@ -178,10 +189,10 @@ def compute_pair_features(
     name_numbers_s1 = merged["name_numbers_s1"]
     name_numbers_other = merged["name_numbers_other"]
     feats["name_digit_jaccard"] = np.array(
-        [_jaccard(a or [], b or []) for a, b in zip(name_numbers_s1, name_numbers_other)]
+        [_jaccard(_items_or_empty(a), _items_or_empty(b)) for a, b in zip(name_numbers_s1, name_numbers_other)]
     )
     feats["name_digit_exact"] = np.array(
-        [1 if sorted(a or []) == sorted(b or []) and (a or b) else 0 for a, b in zip(name_numbers_s1, name_numbers_other)]
+        [1 if sorted(_items_or_empty(a)) == sorted(_items_or_empty(b)) and (len(_items_or_empty(a)) or len(_items_or_empty(b))) else 0 for a, b in zip(name_numbers_s1, name_numbers_other)]
     )
 
     if "tfidf_score_name" in merged.columns:
@@ -199,22 +210,22 @@ def compute_pair_features(
 
     addr_tokens_s1 = merged["address_tokens_s1"]
     addr_tokens_other = merged["address_tokens_other"]
-    feats["addr_token_jaccard"] = np.array([_jaccard(a or [], b or []) for a, b in zip(addr_tokens_s1, addr_tokens_other)])
-    common_addr_tok = np.array([_common_count(a or [], b or []) for a, b in zip(addr_tokens_s1, addr_tokens_other)])
+    feats["addr_token_jaccard"] = np.array([_jaccard(_items_or_empty(a), _items_or_empty(b)) for a, b in zip(addr_tokens_s1, addr_tokens_other)])
+    common_addr_tok = np.array([_common_count(_items_or_empty(a), _items_or_empty(b)) for a, b in zip(addr_tokens_s1, addr_tokens_other)])
     feats["addr_common_token_count"] = common_addr_tok
-    min_len_addr_tok = np.array([max(1, min(len(a or []), len(b or []))) for a, b in zip(addr_tokens_s1, addr_tokens_other)])
+    min_len_addr_tok = np.array([max(1, min(len(_items_or_empty(a)), len(_items_or_empty(b)))) for a, b in zip(addr_tokens_s1, addr_tokens_other)])
     feats["addr_common_token_ratio"] = common_addr_tok / min_len_addr_tok
     feats["addr_rare_token_overlap"] = np.array(
-        [_rare_overlap(a or [], b or [], addr_idf) for a, b in zip(addr_tokens_s1, addr_tokens_other)]
+        [_rare_overlap(_items_or_empty(a), _items_or_empty(b), addr_idf) for a, b in zip(addr_tokens_s1, addr_tokens_other)]
     )
 
     addr_numbers_s1 = merged["address_numbers_s1"]
     addr_numbers_other = merged["address_numbers_other"]
     feats["addr_number_jaccard"] = np.array(
-        [_jaccard(a or [], b or []) for a, b in zip(addr_numbers_s1, addr_numbers_other)]
+        [_jaccard(_items_or_empty(a), _items_or_empty(b)) for a, b in zip(addr_numbers_s1, addr_numbers_other)]
     )
     feats["addr_number_exact_seq"] = np.array(
-        [1 if (a or []) == (b or []) and (a or b) else 0 for a, b in zip(addr_numbers_s1, addr_numbers_other)]
+        [1 if _items_or_empty(a) == _items_or_empty(b) and (len(_items_or_empty(a)) or len(_items_or_empty(b))) else 0 for a, b in zip(addr_numbers_s1, addr_numbers_other)]
     )
     postal_s1 = merged["address_postal_s1"].fillna("")
     postal_other = merged["address_postal_other"].fillna("")

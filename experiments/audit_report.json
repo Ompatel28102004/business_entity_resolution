@@ -1,0 +1,37 @@
+{
+  "train_source1": {
+    "status": "OK",
+    "rows": 2206821,
+    "size_mb": 210.1
+  },
+  "train_source2": {
+    "status": "OK",
+    "rows": 5034616,
+    "size_mb": 489.3
+  },
+  "train_source3": {
+    "status": "OK",
+    "rows": 5285603,
+    "size_mb": 503.7
+  },
+  "train_gt": {
+    "status": "OK",
+    "rows": 2206821,
+    "size_mb": 127.0
+  },
+  "test_source1": {
+    "status": "OK",
+    "rows": 1732544,
+    "size_mb": 175.0
+  },
+  "test_source2": {
+    "status": "OK",
+    "rows": 4887273,
+    "size_mb": 509.5
+  },
+  "test_source3": {
+    "status": "OK",
+    "rows": 5082316,
+    "size_mb": 506.0
+  }
+}

@@ -249,10 +249,12 @@ def ensure_normalized_cache(split: str, source: str, force: bool = False, n_jobs
     return out_path
 
 
-def load_normalized_source(split: str, source: str, n_jobs: int = 1) -> pd.DataFrame:
-    """Load the fully-normalized table for one (split, source), building the cache if needed."""
+def load_normalized_source(
+    split: str, source: str, n_jobs: int = 1, columns: Optional[list[str]] = None
+) -> pd.DataFrame:
+    """Load a normalized table, optionally reading only selected parquet columns."""
     path = ensure_normalized_cache(split, source, n_jobs=n_jobs)
-    return pd.read_parquet(path)
+    return pd.read_parquet(path, columns=columns)
 
 
 def build_all_caches() -> None:

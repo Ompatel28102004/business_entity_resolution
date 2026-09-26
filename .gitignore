@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Secrets / credentials
+.env
+*.pem
+*.key
+credentials*
+.aws/
+
+# Challenge data
+data/
+*.tsv
+*.zip
+
+# Generated ML artifacts
+models/
+outputs/
+cache/
+logs/
+
+# Temporary/generated files
+*.parquet
+*.pkl
+*.joblib
+*.tmp
+*.log
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
